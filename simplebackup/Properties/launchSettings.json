@@ -2,7 +2,7 @@
   "profiles": {
     "simplebackup": {
       "commandName": "Project",
-      "commandLineArgs": "-server cloud.civicmdsg.com.ph -destinationPath D:\\\\NeilBryan\\\\Downloads\\\\FTPTEST -sourceUn SQLBACKUP -sourcePass ftp32432j04AD1140!sQL!@#$ -sourcePort 32432"
+      "commandLineArgs": "-server cloud.civicmdsg.com.ph -destinationPath D:\\\\NeilBryan\\\\Downloads\\\\FTPTEST -sourceUn SQLBACKUP -sourcePass ftp32432j04AD1140!sQL!@#$ -sourcePort 32432 -maxThread 3"
     }
   }
 }

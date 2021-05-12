@@ -24,12 +24,18 @@ namespace simplebackup
         private string ftpUsername { get; set; }
         private string ftpPassword { get; set; }
         private string sourcePath { get; set; }
+        private int maxThread { get; set; }
         private string FullUrl { get { return String.Format("ftp://{0}:{1}/{2}", Server, ftpPort, sourcePath); } }
 
-        SemaphoreSlim semaphore = new SemaphoreSlim(10);
+     
+
+        public SemaphoreSlim semaphore { get; set; }
+        private int defaultThread = 10;
         List<Task> toDownloads = new List<Task>();
         List<SyncResultUpdateViewModel> currentQueue = new List<SyncResultUpdateViewModel>();
-        public FtpconnectionObject(string _server, int _ftpPort, string _destinationPath, string _sourcePath, string _ftpUsername, string _ftpPassword)
+        List<SyncResultUpdateViewModel> forReQueue = new List<SyncResultUpdateViewModel>();
+  
+        public FtpconnectionObject(string _server, int _ftpPort, string _destinationPath, string _sourcePath, string _ftpUsername, string _ftpPassword, string _maxThread)
         {
             Server = _server;
             ftpPort = _ftpPort;
@@ -37,6 +43,8 @@ namespace simplebackup
             ftpUsername = _ftpUsername;
             ftpPassword = _ftpPassword;
             sourcePath = _sourcePath;
+            maxThread = String.IsNullOrEmpty(_maxThread) || String.IsNullOrWhiteSpace(_maxThread) ? defaultThread : int.Parse(_maxThread);
+            semaphore = new SemaphoreSlim(maxThread);
         }
 
 
@@ -62,8 +70,9 @@ namespace simplebackup
         public void SyncFiles()
         {
 
-            try
-            {
+             
+                
+              
                 string errorMessage = validateConnectionParam();
                 if (String.IsNullOrEmpty(errorMessage) && String.IsNullOrWhiteSpace(errorMessage))
                 {
@@ -83,11 +92,7 @@ namespace simplebackup
                 {
                     throw new Exception(errorMessage);
                 }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(String.Format("Error Syncing File Error Detail: {0}", e.ToString()));
-            }
+           
         }
         private async Task DownloadFileFromFtpAsync(string Filename)
         {
@@ -150,6 +155,7 @@ namespace simplebackup
             catch
             {
                 _ = currentQueue.Where(z => z.FileName == Filename).FirstOrDefault().Status = "Error";
+                semaphore.Release();
                 throw new Exception("Downloading error");
             }
         }
@@ -176,7 +182,7 @@ namespace simplebackup
             FtpWebRequest listDownrequest = (FtpWebRequest)WebRequest.Create(FullUrl);
             listDownrequest.Method = WebRequestMethods.Ftp.ListDirectory;
             listDownrequest.KeepAlive = false;
-            // listDownrequest.UsePassive = false;
+            listDownrequest.UsePassive = true;
 
             listDownrequest.Credentials = new NetworkCredential(ftpUsername, ftpPassword);
             try
@@ -196,6 +202,7 @@ namespace simplebackup
                 throw new Exception($"Getting FTP files error { e.Message.ToString() }");
             }
         }
+           
         private string[] getLocalFolderFileList()
         {
             DirectoryInfo directory = new DirectoryInfo(destinationPath);
@@ -206,19 +213,14 @@ namespace simplebackup
         {
             List<string> focBackupFiles = new List<string>();
 
-            try
-            {
+           
                 var serverFiles = GetFtpFilesList();
                 var localFiles = getLocalFolderFileList();
 
 
 
                 focBackupFiles = serverFiles?.Except(localFiles?.Select(x => x)).ToList();
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"error in getting all folder list{ e.ToString() }");
-            }
+         
 
             return focBackupFiles;
         }
@@ -230,7 +232,7 @@ namespace simplebackup
     class Program
     {
 
-
+        static int retryAvailability = 0;
         static void Main(string[] args)
         {
             //string[] CommandsParameter = new string[] { "-server", "-sourcePath", "-destinationPath", "-sourceUn", "-sourcePass", "-sourcePort" };
@@ -242,7 +244,8 @@ namespace simplebackup
                 {"-sourcePort", "" },
                 {"-destinationPath", "" },
                 {"-sourceUn", "" },
-                {"-sourcePass", "" }
+                {"-sourcePass", "" },
+                {"-maxThread", "" }
             };
 
             if (args.Length > 0)
@@ -278,9 +281,32 @@ namespace simplebackup
                 string sourcePass;
                 _ = commandDictionary.TryGetValue("-sourcePass", out sourcePass);
 
+                string maxThread;
+                _ = commandDictionary.TryGetValue("-maxThread", out maxThread);
 
-                FtpconnectionObject obj = new FtpconnectionObject(serverAddress, int.Parse(sourcePort), destinationPath, sourcePath, sourceUn, sourcePass);
-                obj.SyncFiles();
+
+                FtpconnectionObject obj = new FtpconnectionObject(serverAddress, int.Parse(sourcePort), destinationPath, sourcePath, sourceUn, sourcePass, maxThread);
+              try
+                {
+                    obj.SyncFiles();
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("Error in connecting:" + e.Message.ToLower().ToString());
+                    System.Diagnostics.Debug.WriteLine("Error in connecting:" + e.Message.ToLower().ToString());
+                    if (retryAvailability < 100)
+                    {
+                        Console.WriteLine("retrying connection.....");
+                        Console.WriteLine("Error in connecting:" + e.Message.ToLower().ToString());
+                        Thread.Sleep(10000);
+                        obj.SyncFiles();
+                    }
+
+                   
+                }
+                 
+               
+             
 
             }
             else
